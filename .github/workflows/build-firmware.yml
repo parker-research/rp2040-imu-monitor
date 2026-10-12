@@ -1,0 +1,47 @@
+name: Build RP2040 Firmware
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install toolchain & build tools
+        run: |
+          sudo apt-get install -y -q --no-install-recommends \
+            cmake \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib
+
+      - name: Configure CMake
+        run: |
+          mkdir firmware/build
+          cd firmware/build && cmake ..
+
+      - name: Build firmware
+        run: cd firmware/build && make
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-${{ github.sha }}
+          # Glob captures .uf2, .elf, .bin, and .hex produced by the build
+          path: |
+            firmware/build/**/*.uf2
+            firmware/build/**/*.elf
+            firmware/build/**/*.bin
+            firmware/build/**/*.hex
+          if-no-files-found: warn
+          retention-days: 30
