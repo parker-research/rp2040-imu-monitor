@@ -486,7 +486,6 @@ static void emit_help(void) {
         { "help",            "show this help" },
         { "info",            "print the boot/info record" },
         { "interval <ms>",   "set report interval (50-60000 ms)" },
-        { "rate <hz>",       "set report rate (alternative to interval)" },
         { "reinit",          "recover the I2C bus and re-detect the sensor" },
         { "clearwdt",        "clear the watchdog-reboot LED marker" },
         { "reboot",          "reboot the MCU" },
@@ -534,11 +533,6 @@ static void handle_command(char *line) {
         const unsigned long v = strtoul(arg, &end, 10);
         if (end == arg || *end != '\0') emit_error("bad_number");
         else set_interval((uint32_t)v);
-    } else if (strcmp(line, "rate") == 0 && arg != NULL) {
-        char *end;
-        const float hz = strtof(arg, &end);
-        if (end == arg || *end != '\0' || !(hz > 0.0f)) emit_error("bad_number");
-        else set_interval((uint32_t)lroundf(1000.0f / hz));
     } else if (strcmp(line, "reinit") == 0) {
         if (g.imu_ok) sensor_mark_lost("user_reinit");
         i2c_bus_recover();

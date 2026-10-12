@@ -25,7 +25,7 @@ Build options (pass to `cmake` as `-D<NAME>=<value>`):
 
 | Option                  | Default | Meaning                                                                                    |
 |-------------------------|---------|--------------------------------------------------------------------------------------------|
-| `REPORT_INTERVAL_MS`    | `250`   | Default report interval. Also changeable at runtime (see below).                           |
+| `REPORT_INTERVAL_MS`    | `250`   | Default report interval. Also changeable at runtime with `interval <ms>`.                           |
 | `LSM303_LEGACY_VARIANT` | `AUTO`  | `AUTO`, `DLH`, or `DLHC`. The DLH and DLHC look nearly identical on the bus; force one here if auto-detection guesses wrong. |
 | `STATUS_LED_GRB_ORDER`  | `OFF`   | Set `ON` if red and green on the LED are swapped (Waveshare RP2040-Zero LEDs are RGB order). |
 
@@ -105,7 +105,6 @@ Type a command and press Enter.
 | `help`           | List commands.                                     |
 | `info`           | Re-print the `boot` record.                        |
 | `interval <ms>`  | Set the report interval (50-60000 ms).             |
-| `rate <hz>`      | Same, as a rate (e.g. `rate 10`).                  |
 | `reinit`         | Recover the I2C bus and re-detect the sensor.      |
 | `clearwdt`       | Clear the watchdog LED marker.                     |
 | `reboot`         | Reboot.                                            |
