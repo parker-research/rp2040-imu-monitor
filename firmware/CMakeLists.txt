@@ -22,7 +22,7 @@ set(LSM303_LEGACY_VARIANT "AUTO" CACHE STRING
     "How to resolve the DLH-vs-DLHC ambiguity (both use accel 0x19 + mag 0x1E): AUTO, DLH, or DLHC.")
 set_property(CACHE LSM303_LEGACY_VARIANT PROPERTY STRINGS AUTO DLH DLHC)
 option(STATUS_LED_GRB_ORDER
-    "WS2812 colour order is GRB (standard WS2812B). Waveshare RP2040-Zero boards are RGB, so OFF by default." OFF)
+    "WS2812 colour order is GRB (standard WS2812B). Set OFF for LEDs wired as RGB order." ON)
 
 set(CMAKE_EXECUTABLE_SUFFIX ".elf")
 add_executable(rp2040_imu_monitor

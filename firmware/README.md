@@ -39,7 +39,7 @@ Build options (pass to `cmake` as `-D<NAME>=<value>`):
 |-------------------------|---------|--------------------------------------------------------------------------------------------|
 | `REPORT_INTERVAL_MS`    | `250`   | Default report interval. Also changeable at runtime with `interval <ms>`.                           |
 | `LSM303_LEGACY_VARIANT` | `AUTO`  | `AUTO`, `DLH`, or `DLHC`. The DLH and DLHC look nearly identical on the bus; force one here if auto-detection guesses wrong. |
-| `STATUS_LED_GRB_ORDER`  | `OFF`   | Set `ON` if red and green on the LED are swapped (Waveshare RP2040-Zero LEDs are RGB order). |
+| `STATUS_LED_GRB_ORDER`  | `ON`    | WS2812 colour order is GRB. Set `OFF` if red and green on the LED are swapped (RGB-order LED). |
 
 ## Flashing
 
