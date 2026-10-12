@@ -73,7 +73,7 @@ static const uint32_t CONFIG_VERIFY_INTERVAL_MS = 5000;
 // Report health as degraded for this long after any I2C error.
 static const uint32_t ERROR_DEGRADED_HOLD_MS = 5000;
 // Readings bit-for-bit identical for this long => sensor considered stuck.
-static const uint32_t STALE_DATA_MS = 2000;
+static const uint32_t DATA_FROZEN_MS = 2000;
 // Accel magnitude outside this window is physically implausible for a stationary-ish mount.
 static const float ACCEL_PLAUSIBLE_MIN_G = 0.3f;
 static const float ACCEL_PLAUSIBLE_MAX_G = 2.0f;
@@ -139,7 +139,7 @@ typedef struct {
     uint32_t config_restore_count;
     uint32_t last_error_ms;          // 0 = never.
     uint32_t data_unchanged_since_ms;
-    bool     stale;
+    bool     data_frozen;
     bool     plausible;
 
     // Reporting.
@@ -312,7 +312,7 @@ static bool sensor_try_init(void) {
     g.imu_ok = true;
     g.read_fail_streak = 0;
     g.last_valid = false;
-    g.stale = false;
+    g.data_frozen = false;
     emit_event("sensor_detected", "\"sensor\":\"%s\",\"acc_addr\":%u,\"mag_addr\":%u",
                lsm303_variant_name(g.imu.variant), g.imu.acc_addr, g.imu.mag_addr);
     return true;
@@ -326,7 +326,7 @@ static void sensor_mark_lost(const char *why) {
     g.imu.variant = LSM303_NONE;
 }
 
-/// Read the sensor, updating health state. Returns true if `g.last` holds a fresh sample.
+/// Read the sensor, updating health state. Returns true if `g.last` holds a new sample.
 static bool sensor_poll(uint32_t now) {
     if (!g.imu_ok) return false;
 
@@ -348,7 +348,7 @@ static bool sensor_poll(uint32_t now) {
         memcmp(s.acc_raw, g.last.acc_raw, sizeof(s.acc_raw)) == 0 &&
         memcmp(s.mag_raw, g.last.mag_raw, sizeof(s.mag_raw)) == 0;
     if (!unchanged) g.data_unchanged_since_ms = now;
-    g.stale = unchanged && (now - g.data_unchanged_since_ms) >= STALE_DATA_MS;
+    g.data_frozen = unchanged && (now - g.data_unchanged_since_ms) >= DATA_FROZEN_MS;
 
     const float amag = sqrtf(s.acc_g[0] * s.acc_g[0] + s.acc_g[1] * s.acc_g[1] + s.acc_g[2] * s.acc_g[2]);
     g.plausible = amag >= ACCEL_PLAUSIBLE_MIN_G && amag <= ACCEL_PLAUSIBLE_MAX_G;
@@ -378,7 +378,7 @@ static void sensor_verify(uint32_t now) {
 static health_t compute_health(uint32_t now) {
     if (!g.imu_ok) return HEALTH_NO_SENSOR;
     const bool recent_error = g.last_error_ms != 0 && (now - g.last_error_ms) < ERROR_DEGRADED_HOLD_MS;
-    if (recent_error || g.stale || (g.last_valid && !g.plausible)) return HEALTH_DEGRADED;
+    if (recent_error || g.data_frozen || (g.last_valid && !g.plausible)) return HEALTH_DEGRADED;
     return HEALTH_OK;
 }
 
@@ -417,7 +417,7 @@ static float compute_heading_deg(const float acc[3], const float mag[3]) {
 // ---------------------------------------------------------------------------
 // Reports
 // ---------------------------------------------------------------------------
-static void emit_sample(uint32_t now, bool fresh) {
+static void emit_sample(uint32_t now, bool read_ok) {
     breadcrumb(STAGE_REPORT);
     const health_t health = compute_health(now);
 
@@ -427,7 +427,7 @@ static void emit_sample(uint32_t now, bool fresh) {
     jb_printf(&jb, ",\"health\":\"%s\"", health_name(health));
     if (g.imu_ok) jb_printf(&jb, ",\"sensor\":\"%s\"", lsm303_variant_name(g.imu.variant));
     else jb_printf(&jb, ",\"sensor\":null");
-    jb_printf(&jb, ",\"fresh\":%s", fresh ? "true" : "false");
+    jb_printf(&jb, ",\"read_ok\":%s", read_ok ? "true" : "false");
 
     if (g.imu_ok && g.last_valid) {
         const lsm303_sample_t *s = &g.last;
@@ -457,8 +457,8 @@ static void emit_sample(uint32_t now, bool fresh) {
     }
 
     jb_float(&jb, "mcu_temp_c", read_mcu_temp_c(), 2);
-    jb_printf(&jb, ",\"stale\":%s,\"plausible\":%s",
-              g.stale ? "true" : "false", (g.last_valid && g.plausible) ? "true" : "false");
+    jb_printf(&jb, ",\"data_frozen\":%s,\"plausible\":%s",
+              g.data_frozen ? "true" : "false", (g.last_valid && g.plausible) ? "true" : "false");
     jb_printf(&jb, ",\"i2c_err\":%lu,\"fail_streak\":%lu,\"reinit\":%lu,\"cfg_restore\":%lu",
               (unsigned long)g.i2c_err_total, (unsigned long)g.read_fail_streak,
               (unsigned long)g.reinit_count, (unsigned long)g.config_restore_count);
@@ -657,8 +657,8 @@ int main(void) {
         }
 
         if ((int32_t)(now - next_report_ms) >= 0) {
-            const bool fresh = sensor_poll(now);
-            emit_sample(now, fresh);
+            const bool read_ok = sensor_poll(now);
+            emit_sample(now, read_ok);
             next_report_ms += g.report_interval_ms;
             // If we fell far behind (e.g. USB stalled), resync instead of bursting.
             if ((int32_t)(now - next_report_ms) >= 0) next_report_ms = now + g.report_interval_ms;
