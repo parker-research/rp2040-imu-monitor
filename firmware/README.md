@@ -64,12 +64,12 @@ Each line is one JSON object with a `type` field.
 ### `sample` (every report interval)
 
 ```json
-{"type":"sample","t_ms":12250,"seq":48,"health":"ok","sensor":"LSM303DLHC","fresh":true,
+{"type":"sample","t_ms":12250,"seq":48,"health":"ok","sensor":"LSM303DLHC","read_ok":true,
  "acc_raw":[-12,30,1015],"acc_g":[-0.0120,0.0300,1.0150],"acc_mag_g":1.0155,
  "mag_raw":[210,-85,-402],"mag_uT":[19.09,-7.73,-41.02],"mag_mag_uT":45.90,
  "roll_deg":1.69,"pitch_deg":0.68,"heading_deg":337.95,
  "imu_temp_c":24.50,"imu_temp_raw":36,"mcu_temp_c":27.81,
- "stale":false,"plausible":true,"i2c_err":0,"fail_streak":0,"reinit":0,"cfg_restore":0,
+ "data_frozen":false,"plausible":true,"i2c_err":0,"fail_streak":0,"reinit":0,"cfg_restore":0,
  "wdt_reboot":false,"interval_ms":250}
 ```
 
@@ -81,7 +81,7 @@ Each line is one JSON object with a `type` field.
 | `seq`                          | Sample counter; gaps mean dropped lines.                                                      |
 | `health`                       | `ok`, `degraded`, or `no_sensor` (same as the LED).                                           |
 | `sensor`                       | Detected chip, or `null`.                                                                     |
-| `fresh`                        | `false` if this report's sensor read failed; values below are then the last good reading.    |
+| `read_ok`                      | `false` if this report's sensor read failed; values below are then the last good reading.    |
 | `acc_raw`, `mag_raw`           | Raw sensor counts, X/Y/Z.                                                                     |
 | `acc_g`, `acc_mag_g`           | Acceleration in g, and its magnitude (≈1.0 at rest).                                          |
 | `mag_uT`, `mag_mag_uT`         | Magnetic field in µT, and its magnitude (Earth's field is ~25-65 µT).                         |
@@ -89,7 +89,7 @@ Each line is one JSON object with a `type` field.
 | `heading_deg`                  | Tilt-compensated heading of the board's +X axis, 0-360. **Uncalibrated** (no hard/soft-iron correction); calibrate on the host from `mag_raw` for accuracy. |
 | `imu_temp_c`, `imu_temp_raw`   | Sensor die temperature (DLHC, D, AGR only; `null` on DLH/DLM). ST doesn't specify the absolute offset, so treat it as relative. |
 | `mcu_temp_c`                   | RP2040 internal temperature sensor (±a few °C).                                               |
-| `stale`                        | Readings have been bit-for-bit identical for ≥2 s (stuck sensor).                             |
+| `data_frozen`                  | Readings have been bit-for-bit identical for ≥2 s (stuck sensor).                             |
 | `plausible`                    | Accel magnitude is within 0.3-2.0 g.                                                          |
 | `i2c_err`                      | Total I2C errors since boot.                                                                  |
 | `fail_streak`                  | Consecutive failed reads (sensor is dropped and re-detected at 3).                            |
