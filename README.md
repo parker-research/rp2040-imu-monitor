@@ -19,3 +19,9 @@ A magnetometer/accelerometer for remote monitoring of an antenna rotator, built 
 1. Solder the PCBs together directly, using bodge wire as necessary.
 2. Flash firmware (see [firmware/README.md](firmware/README.md)).
 3. Open serial terminal to view output (JSONL, ~4 lines/second).
+
+## History/Purpose
+
+The firmware in this project is largely AI generated without a strong spec.
+
+This project's build configuration is based on the firmware in https://github.com/CalgaryToSpace/CTS-Ground-Station-UHF-Antenna-Switch.

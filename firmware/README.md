@@ -5,11 +5,23 @@ JSONL over USB serial (4 Hz by default) and shows health on the board's RGB LED.
 
 Supported sensors (auto-detected): LSM303DLH, LSM303DLM, LSM303DLHC, LSM303D, LSM303AGR.
 
-## Dependencies (Arch Linux)
+## Build Dependencies
+
+### Arch Linux
 
 ```bash
 sudo pacman -S --needed cmake make git python arm-none-eabi-gcc arm-none-eabi-newlib arm-none-eabi-binutils
-sudo pacman -S --needed picotool   # Optional; without it the SDK builds picotool from source.
+paru -S --needed picotool
+```
+
+### Ubuntu/Debian
+
+```bash
+sudo apt-get install -y \
+  git build-essential cmake \
+  gcc-arm-none-eabi \
+  libnewlib-arm-none-eabi \
+  libstdc++-arm-none-eabi-newlib
 ```
 
 ## Building
