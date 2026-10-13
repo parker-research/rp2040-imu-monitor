@@ -1,4 +1,4 @@
-//! `rotcal check`: verify the calibration and the mechanical link without
+//! `calibrate-rotator-from-imu check`: verify the calibration and the mechanical link without
 //! zeroing. By default nothing moves; `--wiggle` adds small ±moves that
 //! confirm the stored signs/gains still hold.
 

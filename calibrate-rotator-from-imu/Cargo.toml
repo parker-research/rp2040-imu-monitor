@@ -1,5 +1,5 @@
 [package]
-name = "rotcal"
+name = "calibrate-rotator-from-imu"
 version = "0.1.0"
 edition = "2021"
 description = "IMU-referenced zero calibration for hamlib rotctld antenna rotators"

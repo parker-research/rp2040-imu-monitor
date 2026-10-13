@@ -1,4 +1,4 @@
-# rotcal
+# calibrate-rotator-from-imu
 
 Calibrate a hamlib-controlled antenna rotator to **true az=0 / el=0** using an
 IMU (accelerometer + magnetometer) riding on the antenna, with continuous
@@ -7,11 +7,11 @@ coupled.
 
 ```
 cargo build --release
-./target/release/rotcal --help
+./target/release/calibrate-rotator-from-imu --help
 ```
 
 Defaults: IMU auto-detected on `/dev/ttyACM*` (or `--imu /dev/ttyACM0`),
-rotctld at `127.0.0.1:4533`, config file `rotcal.toml` (`-c` to change).
+rotctld at `127.0.0.1:4533`, config file `calibrate-rotator-from-imu.toml` (`-c` to change).
 
 ## Workflow
 
@@ -20,7 +20,7 @@ rotctld at `127.0.0.1:4533`, config file `rotcal.toml` (`-c` to change).
 Put the rotator at **true** zero yourself, then:
 
 ```
-rotcal calibrate --sweep
+calibrate-rotator-from-imu calibrate --sweep
 ```
 
 The command:
@@ -45,16 +45,16 @@ Pass `--goto-zero` to command reported (0,0) first.
 ### 2. `zero`: auto-zero
 
 ```
-rotcal zero                       # elevation, then azimuth, then re-verify both
-rotcal zero --mode el             # elevation only   (alias of --mode elevation)
-rotcal zero --mode az             # azimuth only     (alias of --mode azimuth)
-rotcal zero --dry-run             # measure and report, don't move
-rotcal zero --report out.json --on-zero-cmd 'echo $ROTCAL_ZERO_AZ $ROTCAL_ZERO_EL'
+calibrate-rotator-from-imu zero                       # elevation, then azimuth, then re-verify both
+calibrate-rotator-from-imu zero --mode el             # elevation only   (alias of --mode elevation)
+calibrate-rotator-from-imu zero --mode az             # azimuth only     (alias of --mode azimuth)
+calibrate-rotator-from-imu zero --dry-run             # measure and report, don't move
+calibrate-rotator-from-imu zero --report out.json --on-zero-cmd 'echo $ROTCAL_ZERO_AZ $ROTCAL_ZERO_EL'
 ```
 
 This is a closed loop: measure the true angle from the IMU, command a relative correction, wait to settle, re-measure, and repeat. It stops when the angle is within `el_tol_deg` / `az_tol_deg`, or when the residual is below the rotator's resolution.
 
-**Re-zeroing the controller.** hamlib has no generic "set current position" command. Once the antenna is at IMU-true zero, rotcal sends `w [ESP444]RESTART` through rotctld. The ESP32 controller reboots and takes its current position as az=el=0. rotcal then:
+**Re-zeroing the controller.** hamlib has no generic "set current position" command. Once the antenna is at IMU-true zero, calibrate-rotator-from-imu sends `w [ESP444]RESTART` through rotctld. The ESP32 controller reboots and takes its current position as az=el=0. calibrate-rotator-from-imu then:
 
 1. waits for the controller to come back (`boot_wait_s`, up to `reconnect_timeout_s`);
 2. requires the rotator to report 0/0 (± `expect_zero_tol_deg`), otherwise exit 4;
@@ -71,8 +71,8 @@ A restart zeroes **both** axes. So `--mode el` / `--mode az` measure the other a
 ### 3. `check`: verify calibration without calibrating
 
 ```
-rotcal check            # no motion
-rotcal check --wiggle   # plus ±5° moves on each axis to re-confirm signs/gains
+calibrate-rotator-from-imu check            # no motion
+calibrate-rotator-from-imu check --wiggle   # plus ±5° moves on each axis to re-confirm signs/gains
 ```
 
 This reports the IMU-true az/el, the rotator's error versus truth, and every static link check.
@@ -127,7 +127,7 @@ If `reinit` or `cfg_restore` changes mid-window, the window is discarded, becaus
 
 ## Why the magnetometer works (and where it won't)
 
-At Calgary the field dips about 73°, so only about 16 µT of the field is horizontal. Your sample shows |B| ≈ 97 µT against Earth's ≈ 56 µT, which means a large **hard-iron** offset from the boom, motors or cables. The firmware `heading_deg` is therefore close to useless: in the simulator it moves only about 0.1° per degree of azimuth. rotcal ignores it and instead:
+At Calgary the field dips about 73°, so only about 16 µT of the field is horizontal. Your sample shows |B| ≈ 97 µT against Earth's ≈ 56 µT, which means a large **hard-iron** offset from the boom, motors or cables. The firmware `heading_deg` is therefore close to useless: in the simulator it moves only about 0.1° per degree of azimuth. calibrate-rotator-from-imu ignores it and instead:
 
 - **Fits a physical model** with linear least squares:
   `m_imu = Mᵀ·Rot(el_axis, el)·Rz(az)·B_earth + b_hard_iron`.
@@ -142,7 +142,7 @@ A field that changes after calibration (new metalwork, a car parked nearby) brea
 
 ## Tuning
 
-`[limits]`, `[thresholds]` and `[timing]` in `rotcal.toml` are hand-editable.
+`[limits]`, `[thresholds]` and `[timing]` in `calibrate-rotator-from-imu.toml` are hand-editable.
 
 - **Rotator rejects targets near zero.** If rotctld refuses positions slightly below 0° (`RPRT -1`), widen its limits (for example `--set-conf=min_el=-10`) or `[limits]`. Azimuth corrections across a hard stop require `--allow-long-way`.
 - **Deadband.** Rotators with a 1–2° deadband will stop with "residual below the rotator's resolution". Raise `min_step_deg` / `pos_tol_deg` to match.
@@ -160,10 +160,10 @@ Every command runs against a built-in simulator. It provides:
 - time compression.
 
 ```
-rotcal --sim -c sim.toml calibrate --yes --sweep
-rotcal --sim -c sim.toml --sim-offset-az 23.5 --sim-offset-el -3 --sim-start-az 40 --sim-start-el 7 zero
-rotcal --sim -c sim.toml --sim-fault mast-slip --sim-start-az 50 zero      # -> exit 5
-rotcal --sim -c sim.toml --sim-fault imu-shifted check                       # -> exit 5
+calibrate-rotator-from-imu --sim -c sim.toml calibrate --yes --sweep
+calibrate-rotator-from-imu --sim -c sim.toml --sim-offset-az 23.5 --sim-offset-el -3 --sim-start-az 40 --sim-start-el 7 zero
+calibrate-rotator-from-imu --sim -c sim.toml --sim-fault mast-slip --sim-start-az 50 zero      # -> exit 5
+calibrate-rotator-from-imu --sim -c sim.toml --sim-fault imu-shifted check                       # -> exit 5
 ```
 
 Available faults: `mast-slip`, `el-stuck`, `imu-detached`, `imu-shifted`.

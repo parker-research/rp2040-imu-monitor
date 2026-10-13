@@ -1,4 +1,4 @@
-//! `rotcal zero`: closed-loop drive to IMU-true az=0 / el=0, with link
+//! `calibrate-rotator-from-imu zero`: closed-loop drive to IMU-true az=0 / el=0, with link
 //! ("glue") checks on every move.
 
 use crate::config::Config;
@@ -428,7 +428,7 @@ fn sync(ctx: &mut Ctx, cfg: &Config, model: &Model, cmd: &str, el0: f64, az0: f6
     if de.abs() > ctx.th.glue_el_abs_deg || da.abs() > az_lim {
         return Err(Fail::Glue(format!(
             "antenna moved during the controller restart (el {de:+.2}°, az {da:+.2}°): \
-             the new zero is not at true zero — re-run `rotcal zero`"
+             the new zero is not at true zero — re-run `calibrate-rotator-from-imu zero`"
         )));
     }
     rep.rotator_final = Some(after);

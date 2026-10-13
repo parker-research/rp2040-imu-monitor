@@ -110,6 +110,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "calibrate-rotator-from-imu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "ctrlc",
+ "env_logger",
+ "log",
+ "rand",
+ "rand_distr",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "cc"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -692,26 +712,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "rotcal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "ctrlc",
- "env_logger",
- "log",
- "rand",
- "rand_distr",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "thiserror",
- "toml",
-]
 
 [[package]]
 name = "rustix"

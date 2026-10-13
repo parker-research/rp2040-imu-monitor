@@ -296,7 +296,7 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
                             s.tel = s.el;
                             "RPRT 0\n".to_string()
                         }
-                        Some("_") => "rotcal simulator\n".to_string(),
+                        Some("_") => "calibrate-rotator-from-imu simulator\n".to_string(),
                         Some("q") => return,
                         _ => "RPRT -4\n".to_string(),
                     };

@@ -1,4 +1,4 @@
-//! `rotcal calibrate`: with the rotator physically at true az=0 el=0, capture
+//! `calibrate-rotator-from-imu calibrate`: with the rotator physically at true az=0 el=0, capture
 //! a reference, make small test moves on each axis, and derive the IMU
 //! mounting transform, sign conventions, and magnetic model.
 

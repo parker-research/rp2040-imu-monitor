@@ -20,6 +20,10 @@ A magnetometer/accelerometer for remote monitoring of an antenna rotator, built 
 2. Flash firmware (see [firmware/README.md](firmware/README.md)).
 3. Open serial terminal to view output (JSONL, ~4 lines/second).
 
+## Rotator Calibration Tool
+
+[calibrate-rotator-from-imu/](calibrate-rotator-from-imu/README.md) is a Rust CLI that reads this monitor's IMU stream and uses it to zero and verify a hamlib `rotctld` antenna rotator (calibrate, zero, check, and monitor commands, plus a built-in simulator).
+
 ## History/Purpose
 
 The firmware in this project is largely AI generated without a strong spec.

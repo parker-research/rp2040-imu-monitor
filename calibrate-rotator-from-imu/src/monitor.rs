@@ -1,4 +1,4 @@
-//! `rotcal monitor`: live view of the raw stream and (with a config) the
+//! `calibrate-rotator-from-imu monitor`: live view of the raw stream and (with a config) the
 //! IMU-derived true az/el next to what the rotator reports.
 
 use crate::config::Config;

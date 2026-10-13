@@ -3,8 +3,8 @@
 use std::path::Path;
 use std::process::Command;
 
-fn rotcal(cfg: &Path, args: &[&str]) -> (i32, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_rotcal"))
+fn run_cli(cfg: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_calibrate-rotator-from-imu"))
         .arg("--sim")
         .arg("--sim-speed")
         .arg("25")
@@ -12,7 +12,7 @@ fn rotcal(cfg: &Path, args: &[&str]) -> (i32, String) {
         .arg(cfg)
         .args(args)
         .output()
-        .expect("run rotcal");
+        .expect("run calibrate-rotator-from-imu");
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     (out.status.code().unwrap_or(-1), text)
 }
@@ -23,7 +23,7 @@ fn calibrated(dir: &Path, sweep: bool) -> std::path::PathBuf {
     if sweep {
         a.push("--sweep");
     }
-    let (code, out) = rotcal(&cfg, &a);
+    let (code, out) = run_cli(&cfg, &a);
     assert_eq!(code, 0, "{out}");
     cfg
 }
@@ -45,7 +45,7 @@ fn calibrate_then_zero_all_modes() {
 
     let mut a = off.to_vec();
     a.extend(["zero", "--report", rs]);
-    let (code, out) = rotcal(&cfg, &a);
+    let (code, out) = run_cli(&cfg, &a);
     assert_eq!(code, 0, "{out}");
     let r = report(&rep);
     assert!((r["offset_before_sync_az"].as_f64().unwrap() - 17.0).abs() < 1.5, "{r}");
@@ -57,7 +57,7 @@ fn calibrate_then_zero_all_modes() {
     for (mode, key) in [("el", "final_el_deg"), ("az", "final_az_deg")] {
         let mut a = off.to_vec();
         a.extend(["zero", "--mode", mode, "--report", rs]);
-        let (code, out) = rotcal(&cfg, &a);
+        let (code, out) = run_cli(&cfg, &a);
         assert_eq!(code, 0, "{mode}: {out}");
         let r = report(&rep);
         assert!(r[key].as_f64().unwrap().abs() < 1.2, "{mode}: {r}");
@@ -68,14 +68,14 @@ fn calibrate_then_zero_all_modes() {
     // a restart command the controller doesn't honour must fail loudly
     let mut a = off.to_vec();
     a.extend(["zero", "--sync-cmd", "w BOGUS"]);
-    let (code, out) = rotcal(&cfg, &a);
+    let (code, out) = run_cli(&cfg, &a);
     assert_eq!(code, 4, "{out}");
     assert!(out.contains("did not adopt the current position as zero"), "{out}");
 
     // dry run must not move
     let mut a = off.to_vec();
     a.extend(["zero", "--dry-run", "--report", rs]);
-    let (code, _) = rotcal(&cfg, &a);
+    let (code, _) = run_cli(&cfg, &a);
     assert_eq!(code, 0);
     let r = report(&rep);
     assert_eq!(r["rotator_final"][0].as_f64().unwrap(), 40.0);
@@ -87,7 +87,7 @@ fn link_failures_are_detected() {
     let d = tempfile::tempdir().unwrap();
     let cfg = calibrated(d.path(), false);
     for fault in ["mast-slip", "el-stuck", "imu-detached", "imu-shifted"] {
-        let (code, out) = rotcal(
+        let (code, out) = run_cli(
             &cfg,
             &["--sim-offset-az", "20", "--sim-start-az", "50", "--sim-start-el", "8", "--sim-fault", fault, "zero"],
         );
@@ -100,10 +100,10 @@ fn link_failures_are_detected() {
 fn check_mode() {
     let d = tempfile::tempdir().unwrap();
     let cfg = calibrated(d.path(), false);
-    let (code, out) = rotcal(&cfg, &["check", "--wiggle"]);
+    let (code, out) = run_cli(&cfg, &["check", "--wiggle"]);
     assert_eq!(code, 0, "{out}");
-    let (code, _) = rotcal(&cfg, &["--sim-offset-az", "6", "check"]);
+    let (code, _) = run_cli(&cfg, &["--sim-offset-az", "6", "check"]);
     assert_eq!(code, 8, "offset rotator should report not-zeroed");
-    let (code, _) = rotcal(&cfg, &["--sim-fault", "mast-slip", "--sim-fault-after", "2", "check", "--wiggle"]);
+    let (code, _) = run_cli(&cfg, &["--sim-fault", "mast-slip", "--sim-fault-after", "2", "check", "--wiggle"]);
     assert_eq!(code, 5);
 }

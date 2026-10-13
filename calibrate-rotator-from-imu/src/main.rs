@@ -32,7 +32,7 @@ struct Cli {
     #[arg(long, global = true, default_value = "127.0.0.1:4533")]
     rotctld: String,
     /// Calibration file.
-    #[arg(long, short, global = true, default_value = "rotcal.toml")]
+    #[arg(long, short, global = true, default_value = "calibrate-rotator-from-imu.toml")]
     config: PathBuf,
     /// -v debug, -vv trace.
     #[arg(long, short, global = true, action = ArgAction::Count)]
