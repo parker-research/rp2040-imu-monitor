@@ -38,6 +38,9 @@ fn calibrate_then_zero_all_modes() {
     let cfg = calibrated(d.path(), true);
     let toml = std::fs::read_to_string(&cfg).unwrap();
     assert!(toml.contains("[mount]") && toml.contains("[signs]") && toml.contains("elevation_primary_field"));
+    // The simulated rotator reads high in elevation, so zeroing must command below 0°.
+    assert!(toml.contains("el_min = 0.0"), "{toml}");
+    std::fs::write(&cfg, toml.replace("el_min = 0.0", "el_min = -10.0")).unwrap();
 
     let rep = d.path().join("r.json");
     let rs = rep.to_str().unwrap();
