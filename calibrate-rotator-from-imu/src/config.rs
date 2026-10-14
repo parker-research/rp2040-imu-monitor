@@ -167,10 +167,10 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            az_min: -180.0,
-            az_max: 450.0,
-            el_min: -15.0,
-            el_max: 180.0,
+            az_min: 0.0,
+            az_max: 360.0,
+            el_min: 0.0,
+            el_max: 85.0,
             max_correction_el_deg: 20.0,
             max_correction_az_deg: 90.0,
         }
