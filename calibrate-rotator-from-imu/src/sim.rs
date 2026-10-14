@@ -10,7 +10,7 @@ use crate::math::{M3, V3};
 use crate::sample::Sample;
 use clap::ValueEnum;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -91,7 +91,7 @@ impl Fixed {
     fn new(seed: u64) -> Fixed {
         let mut r = StdRng::seed_from_u64(seed);
         let n = Normal::new(0.0, 1.0).unwrap();
-        let mount = M3::rz(r.gen_range(-180.0..180.0))
+        let mount = M3::rz(r.random_range(-180.0..180.0))
             .mul(&M3::ry(3.0 * n.sample(&mut r)))
             .mul(&M3::rx(180.0 + 3.0 * n.sample(&mut r)));
         let base = M3::rx(0.4 * n.sample(&mut r)).mul(&M3::ry(0.4 * n.sample(&mut r)));
@@ -214,7 +214,7 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
                     heading_deg: Some(rnd(hdg, 100.0)),
                     imu_temp_c: None,
                     imu_temp_raw: None,
-                    mcu_temp_c: Some(26.5 + r.gen_range(-0.2..0.2)),
+                    mcu_temp_c: Some(26.5 + r.random_range(-0.2..0.2)),
                     data_frozen: false,
                     plausible: true,
                     i2c_err: 0,
