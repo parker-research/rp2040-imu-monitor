@@ -17,12 +17,13 @@ fn run_cli(cfg: &Path, args: &[&str]) -> (i32, String) {
     (out.status.code().unwrap_or(-1), text)
 }
 
-fn calibrated(dir: &Path, sweep: bool) -> std::path::PathBuf {
+/// A faster, coarser envelope survey for tests that don't examine the fit.
+const COARSE: [&str; 4] = ["--az-step", "45", "--el-step", "40"];
+
+fn calibrated(dir: &Path, extra: &[&str]) -> std::path::PathBuf {
     let cfg = dir.join("cal.toml");
     let mut a = vec!["calibrate", "--yes"];
-    if sweep {
-        a.push("--sweep");
-    }
+    a.extend(extra);
     let (code, out) = run_cli(&cfg, &a);
     assert_eq!(code, 0, "{out}");
     cfg
@@ -35,12 +36,18 @@ fn report(p: &Path) -> serde_json::Value {
 #[test]
 fn calibrate_then_zero_all_modes() {
     let d = tempfile::tempdir().unwrap();
-    let cfg = calibrated(d.path(), true);
+    let cfg = calibrated(d.path(), &[]);
     let toml = std::fs::read_to_string(&cfg).unwrap();
     assert!(toml.contains("[mount]") && toml.contains("[signs]") && toml.contains("elevation_primary_field"));
-    // The simulated rotator reads high in elevation, so zeroing must command below 0°.
-    assert!(toml.contains("el_min = 0.0"), "{toml}");
-    std::fs::write(&cfg, toml.replace("el_min = 0.0", "el_min = -10.0")).unwrap();
+    // the envelope survey must model the field well everywhere, including
+    // on the held-out pass it was not fitted to
+    let c: toml::Value = toml::from_str(&toml).unwrap();
+    let sv = &c["survey"];
+    assert_eq!(sv["performed"].as_bool(), Some(true), "{toml}");
+    assert!(sv["validation_az_max_deg"].as_float().unwrap() < 2.0, "{sv}");
+    assert!(sv["h_ratio_min"].as_float().unwrap() > 0.95 && sv["h_ratio_max"].as_float().unwrap() < 1.05, "{sv}");
+    let survey: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(cfg.with_extension("survey.json")).unwrap()).unwrap();
+    assert!(survey.as_array().unwrap().len() > 60);
 
     let rep = d.path().join("r.json");
     let rs = rep.to_str().unwrap();
@@ -75,6 +82,18 @@ fn calibrate_then_zero_all_modes() {
     assert_eq!(code, 4, "{out}");
     assert!(out.contains("did not adopt the current position as zero"), "{out}");
 
+    // Powered on away from zero: the controller boots reporting 0/0 while the
+    // antenna is really at az 40 / el 40.
+    let boot = ["--sim-offset-az", "-40", "--sim-offset-el", "-40", "--sim-start-az", "0", "--sim-start-el", "0"];
+    let mut a = boot.to_vec();
+    a.extend(["zero", "--report", rs]);
+    let (code, out) = run_cli(&cfg, &a);
+    assert_eq!(code, 0, "{out}");
+    let r = report(&rep);
+    assert!((r["offset_before_sync_az"].as_f64().unwrap() + 40.0).abs() < 1.5, "{r}");
+    assert!((r["offset_before_sync_el"].as_f64().unwrap() + 40.0).abs() < 0.5, "{r}");
+    assert_eq!(r["sync"]["performed"], true, "{r}");
+
     // dry run must not move
     let mut a = off.to_vec();
     a.extend(["zero", "--dry-run", "--report", rs]);
@@ -88,7 +107,7 @@ fn calibrate_then_zero_all_modes() {
 #[test]
 fn link_failures_are_detected() {
     let d = tempfile::tempdir().unwrap();
-    let cfg = calibrated(d.path(), false);
+    let cfg = calibrated(d.path(), &COARSE);
     for fault in ["mast-slip", "el-stuck", "imu-detached", "imu-shifted"] {
         let (code, out) = run_cli(
             &cfg,
@@ -102,7 +121,7 @@ fn link_failures_are_detected() {
 #[test]
 fn check_mode() {
     let d = tempfile::tempdir().unwrap();
-    let cfg = calibrated(d.path(), false);
+    let cfg = calibrated(d.path(), &COARSE);
     let (code, out) = run_cli(&cfg, &["check", "--wiggle"]);
     assert_eq!(code, 0, "{out}");
     let (code, _) = run_cli(&cfg, &["--sim-offset-az", "6", "check"]);

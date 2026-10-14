@@ -1,7 +1,9 @@
 //! In-process simulator: a fake `rotctld` on a local TCP port plus an IMU
 //! emitting the same JSONL as the real firmware. The IMU is mounted with a
-//! random (seeded) orientation, hard-iron offset, non-level rotator base,
-//! Calgary-like Earth field and motor magnetic interference while moving.
+//! random (seeded) orientation, hard-iron offset, soft-iron / sensor-gain
+//! distortion, non-level rotator base, Calgary-like Earth field, a field
+//! from iron on the azimuth stage (turns with azimuth, not elevation), and
+//! motor magnetic interference while moving.
 //! Faults can be injected to exercise the mechanical-link checks.
 
 use crate::math::{M3, V3};
@@ -54,7 +56,8 @@ struct World {
     rebooting_until: Option<std::time::Instant>,
     ant_az_frozen: Option<f64>,
     ant_el_frozen: Option<f64>,
-    imu_frozen: Option<M3>,
+    /// Detached IMU: frozen orientation and frozen azimuth-stage field.
+    imu_frozen: Option<(M3, V3)>,
 }
 
 struct Fixed {
@@ -62,6 +65,10 @@ struct Fixed {
     mount: M3,
     base: M3,
     hard_iron: V3,
+    /// Symmetric soft-iron / gain matrix applied to the external field.
+    soft: M3,
+    /// Field of iron on the azimuth stage, in the stage frame.
+    stage: V3,
     field: V3,
     motor: V3,
     deadband: f64,
@@ -74,8 +81,9 @@ pub struct Sim {
     pub lines: Option<Receiver<String>>,
 }
 
-const AZ_LIM: (f64, f64) = (-180.0, 540.0);
-const EL_LIM: (f64, f64) = (-20.0, 180.0);
+// Wide: after a power cycle the controller's frame is arbitrary.
+const AZ_LIM: (f64, f64) = (-360.0, 720.0);
+const EL_LIM: (f64, f64) = (-90.0, 180.0);
 
 impl Fixed {
     fn new(seed: u64) -> Fixed {
@@ -92,7 +100,15 @@ impl Fixed {
         let h = f * inc.cos();
         let field = V3::new(h * dec.cos(), -h * dec.sin(), -f * inc.sin());
         let motor = V3::new(n.sample(&mut r), n.sample(&mut r), n.sample(&mut r)) * 0.8;
-        Fixed { mount, base, hard_iron, field, motor, deadband: 0.4, az_dps: 6.0, el_dps: 3.0 }
+        let d: Vec<f64> = (0..6).map(|_| 0.04 * n.sample(&mut r)).collect();
+        let soft = M3([[1.0 + d[0], d[3], d[4]], [d[3], 1.0 + d[1], d[5]], [d[4], d[5], 1.0 + d[2]]]);
+        let stage = V3::new(n.sample(&mut r), n.sample(&mut r), n.sample(&mut r)).unit() * 10.0;
+        Fixed { mount, base, hard_iron, soft, stage, field, motor, deadband: 0.4, az_dps: 6.0, el_dps: 3.0 }
+    }
+
+    /// Azimuth-stage field as seen by the IMU at elevation `el`.
+    fn stage_in_imu(&self, el: f64) -> V3 {
+        self.mount.t().mul(&M3::ry(el)).mul_v(self.stage)
     }
 
     /// World -> IMU rotation for an antenna at (az, el).
@@ -160,16 +176,16 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
             let mut seq = 0u64;
             loop {
                 thread::sleep(Duration::from_secs_f64(0.25 / speed));
-                let (wi, moving) = {
+                let (wi, st, moving) = {
                     let s = w.lock().unwrap();
                     let az = s.ant_az_frozen.unwrap_or(s.az);
                     let el = s.ant_el_frozen.unwrap_or(s.el);
-                    let wi = s.imu_frozen.unwrap_or_else(|| fx.world_to_imu(az, el));
-                    (wi, (s.az - s.taz).abs() > 1e-6 || (s.el - s.tel).abs() > 1e-6)
+                    let (wi, st) = s.imu_frozen.unwrap_or_else(|| (fx.world_to_imu(az, el), fx.stage_in_imu(el)));
+                    (wi, st, (s.az - s.taz).abs() > 1e-6 || (s.el - s.tel).abs() > 1e-6)
                 };
                 let acc = wi.mul_v(V3::new(0.0, 0.0, 1.0))
                     + V3::new(na.sample(&mut r), na.sample(&mut r), na.sample(&mut r));
-                let mut mag = wi.mul_v(fx.field)
+                let mut mag = fx.soft.mul_v(wi.mul_v(fx.field) + st)
                     + fx.hard_iron
                     + V3::new(nm.sample(&mut r), nm.sample(&mut r), nm.sample(&mut r));
                 if moving {
@@ -277,7 +293,7 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
                                     if s.sets > after {
                                         match fault {
                                             Fault::ImuDetached if s.imu_frozen.is_none() => {
-                                                let m = fx.world_to_imu(s.az, s.el);
+                                                let m = (fx.world_to_imu(s.az, s.el), fx.stage_in_imu(s.el));
                                                 s.imu_frozen = Some(m);
                                             }
                                             Fault::MastSlip if s.ant_az_frozen.is_none() => s.ant_az_frozen = Some(s.az),

@@ -72,7 +72,8 @@ struct SimArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Characterise the IMU mounting with the rotator at TRUE zero; writes the config.
+    /// Characterise the IMU mounting with the rotator at TRUE zero, then survey
+    /// the whole operating envelope; writes the config (and <config>.survey.json).
     Calibrate {
         /// Test move size (deg, 1–15).
         #[arg(long, default_value_t = 10.0)]
@@ -83,13 +84,19 @@ enum Cmd {
         /// Command the rotator to reported (0,0) first.
         #[arg(long)]
         goto_zero: bool,
-        /// Also sweep azimuth to model magnetometer distortion (recommended).
+        /// Small test moves around zero only; skip the envelope survey. Azimuth
+        /// is then only trustworthy near el=0.
         #[arg(long)]
-        sweep: bool,
+        quick: bool,
+        /// Survey: azimuth spacing of the stops on each ring (deg).
         #[arg(long, default_value_t = 30.0)]
-        sweep_step: f64,
+        az_step: f64,
+        /// Survey: elevation spacing between rings (deg).
+        #[arg(long, default_value_t = 20.0)]
+        el_step: f64,
+        /// Survey: azimuth span of each ring (deg), within [limits].
         #[arg(long, default_value_t = 360.0)]
-        sweep_span: f64,
+        az_span: f64,
         #[command(flatten)]
         lim: LimitArgs,
     },
@@ -195,7 +202,7 @@ fn make_ctx(io: Io, cfg: Option<&Config>) -> R<Ctx> {
         None => (Thresholds::default(), Timing::default(), Limits::default()),
     };
     tm.speed = io.speed;
-    Ok(Ctx { imu: io.imu, rot, th, tm, lim })
+    Ok(Ctx { imu: io.imu, rot, th, tm, lim, zero_rep: (0.0, 0.0) })
 }
 
 fn write_json<T: serde::Serialize>(path: &Option<PathBuf>, v: &T) {
@@ -221,11 +228,29 @@ fn print_cal_summary(cfg: &Config, path: &Path) {
         cfg.azimuth.single_sample_noise_deg,
         if cfg.azimuth.swept { ", deviation table from sweep" } else { " (no sweep)" }
     );
+    let sv = &cfg.survey;
+    if sv.performed {
+        println!(
+            "  survey: {} points, rings at el {:?}; azimuth error rms {:.2}° max {:.2}° (held-out pass: rms {:.2}° max {:.2}°); \
+             |B_h| ratio {:.2}–{:.2}; elevation error max {:.2}°",
+            sv.points,
+            sv.el_levels_deg,
+            sv.az_residual_rms_deg,
+            sv.az_residual_max_deg,
+            sv.validation_az_rms_deg,
+            sv.validation_az_max_deg,
+            sv.h_ratio_min,
+            sv.h_ratio_max,
+            sv.el_residual_max_deg
+        );
+    } else {
+        println!("  survey: skipped (--quick); azimuth is only trustworthy near el=0");
+    }
 }
 
 fn real_main(cli: Cli) -> R<i32> {
     match &cli.cmd {
-        Cmd::Calibrate { step, yes, goto_zero, sweep, sweep_step, sweep_span, lim } => {
+        Cmd::Calibrate { step, yes, goto_zero, quick, az_step, el_step, az_span, lim } => {
             let io = open_io(&cli)?;
             let mut ctx = make_ctx(io, None)?;
             if let Some(v) = lim.az_min {
@@ -244,13 +269,15 @@ fn real_main(cli: Cli) -> R<i32> {
                 step: *step,
                 yes: *yes,
                 goto_zero: *goto_zero,
-                sweep: *sweep,
-                sweep_step: *sweep_step,
-                sweep_span: *sweep_span,
+                quick: *quick,
+                az_step: *az_step,
+                el_step: *el_step,
+                az_span: *az_span,
             };
-            let cfg = calibrate::run(&mut ctx, &o)?;
-            cfg.save(&cli.config)?;
-            print_cal_summary(&cfg, &cli.config);
+            let out = calibrate::run(&mut ctx, &o)?;
+            out.cfg.save(&cli.config)?;
+            write_json(&Some(cli.config.with_extension("survey.json")), &out.survey);
+            print_cal_summary(&out.cfg, &cli.config);
             Ok(0)
         }
         Cmd::Zero { mode, dry_run, allow_long_way, report, on_zero_cmd, no_sync, sync_cmd } => {

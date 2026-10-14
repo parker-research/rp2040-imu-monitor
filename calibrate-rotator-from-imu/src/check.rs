@@ -82,6 +82,7 @@ pub fn run(ctx: &mut Ctx, cfg: &Config, o: &CheckOpts) -> R<CheckReport> {
 
     let el_err = pos.1 - el.el / cfg.elevation.gain;
     r.rotator_error_el_deg = el_err;
+    ctx.zero_rep = (pos.0, el_err);
     r.add(
         "rotator elevation zero",
         el_err.abs() <= ctx.th.el_tol_deg.max(ctx.th.pos_tol_deg * 0.5),
@@ -105,6 +106,7 @@ pub fn run(ctx: &mut Ctx, cfg: &Config, o: &CheckOpts) -> R<CheckReport> {
                 );
                 let az_err = wrap180(pos.0 - a.az / cfg.azimuth.gain);
                 r.rotator_error_az_deg = Some(az_err);
+                ctx.zero_rep.0 = pos.0 - a.az / cfg.azimuth.gain;
                 r.add(
                     "rotator azimuth zero",
                     az_err.abs() <= ctx.th.az_tol_deg + 2.0 * a.se,
@@ -129,9 +131,9 @@ pub fn run(ctx: &mut Ctx, cfg: &Config, o: &CheckOpts) -> R<CheckReport> {
 fn pick(ctx: &Ctx, base: (f64, f64), d: (f64, f64)) -> Option<(f64, f64)> {
     let a = (base.0 + d.0, base.1 + d.1);
     let b = (base.0 - d.0, base.1 - d.1);
-    if check_limits(ctx, a).is_ok() {
+    if check_limits(ctx, a, Some(base)).is_ok() {
         Some(a)
-    } else if check_limits(ctx, b).is_ok() {
+    } else if check_limits(ctx, b, Some(base)).is_ok() {
         Some(b)
     } else {
         None

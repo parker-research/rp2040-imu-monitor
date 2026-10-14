@@ -33,12 +33,23 @@ pub struct MoveOut {
     pub moved: bool,
 }
 
-pub fn check_limits(ctx: &Ctx, t: (f64, f64)) -> R<()> {
+/// [limits] are physical travel limits in true coordinates, known only to
+/// within the IMU's measurement and the rotator's positioning (pos_tol_deg).
+/// A target is allowed if each axis is inside them, or (given the current
+/// position) no further outside than it already is.
+pub fn check_limits(ctx: &Ctx, target: (f64, f64), from: Option<(f64, f64)>) -> R<()> {
+    let eps = ctx.th.pos_tol_deg;
     let l = &ctx.lim;
-    if t.0 < l.az_min || t.0 > l.az_max || t.1 < l.el_min || t.1 > l.el_max {
+    let t = ctx.to_true(target);
+    let f = from.map(|p| ctx.to_true(p));
+    let out = |v: f64, lo: f64, hi: f64| (lo - v).max(v - hi).max(0.0);
+    let ok = |v: f64, cur: Option<f64>, lo: f64, hi: f64| {
+        out(v, lo, hi) <= eps || cur.is_some_and(|c| out(v, lo, hi) <= out(c, lo, hi) + eps)
+    };
+    if !ok(t.0, f.map(|p| p.0), l.az_min, l.az_max) || !ok(t.1, f.map(|p| p.1), l.el_min, l.el_max) {
         return Err(Fail::Rejected(format!(
-            "target az={:.2} el={:.2} outside configured limits az[{}, {}] el[{}, {}]",
-            t.0, t.1, l.az_min, l.az_max, l.el_min, l.el_max
+            "target az={:.2} el={:.2} (true az={:.2} el={:.2}) outside configured limits az[{}, {}] el[{}, {}]",
+            target.0, target.1, t.0, t.1, l.az_min, l.az_max, l.el_min, l.el_max
         )));
     }
     Ok(())
@@ -52,8 +63,8 @@ fn stop_and(ctx: &mut Ctx, e: Fail) -> Fail {
 }
 
 pub fn move_to(ctx: &mut Ctx, target: (f64, f64), watch: Watch) -> R<MoveOut> {
-    check_limits(ctx, target)?;
     let start = ctx.rot.get_pos()?;
+    check_limits(ctx, target, Some(start))?;
     let req = (target.0 - start.0).abs().max((target.1 - start.1).abs());
     let timeout = ctx.tm.d(ctx.tm.move_base_timeout_s + req / ctx.tm.min_speed_dps);
     info!(

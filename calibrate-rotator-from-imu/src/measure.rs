@@ -20,6 +20,15 @@ pub struct Ctx {
     pub th: Thresholds,
     pub tm: Timing,
     pub lim: Limits,
+    /// What the controller reports at true zero (best current estimate).
+    /// Maps reported positions to true ones for the [limits] check.
+    pub zero_rep: (f64, f64),
+}
+
+impl Ctx {
+    pub fn to_true(&self, reported: (f64, f64)) -> (f64, f64) {
+        (reported.0 - self.zero_rep.0, reported.1 - self.zero_rep.1)
+    }
 }
 
 #[derive(Clone, Debug)]

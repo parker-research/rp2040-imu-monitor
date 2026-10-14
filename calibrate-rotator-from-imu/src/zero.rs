@@ -107,8 +107,9 @@ pub fn temperature_check(cfg: &Config, t: Option<f64>, rep: &mut Report) {
 fn with_hint(e: Fail) -> Fail {
     match e {
         Fail::Rejected(m) => Fail::Rejected(format!(
-            "{m}. The correction needs a position outside the rotator's limits; widen rotctld's limits \
-             (e.g. --set-conf=min_el=-10) or [limits] in the config"
+            "{m}. Reaching true zero needs this reported position (the controller's frame is offset from true, \
+             e.g. it boots reporting 0/0 wherever the antenna is). Let rotctld accept it \
+             (e.g. --set-conf=min_az=-360,min_el=-90), or widen [limits] in the config if those are the ones refusing"
         )),
         e => e,
     }
@@ -135,6 +136,7 @@ pub fn zero_el(ctx: &mut Ctx, cfg: &Config, model: &Model, mut cur: ElMeas, rep:
             return Ok(cur);
         }
         let pos = ctx.rot.get_pos()?;
+        ctx.zero_rep.1 = pos.1 - cur.el / gain;
         let target = (pos.0, pos.1 - cur.el / gain);
         let watch = Watch::Follow { axis: Axis::El, model, imu0: cur.el, gain };
         let mv: MoveOut = move_to(ctx, target, watch).map_err(with_hint)?;
@@ -172,26 +174,21 @@ pub fn zero_el(ctx: &mut Ctx, cfg: &Config, model: &Model, mut cur: ElMeas, rep:
     }
 }
 
-fn az_target(ctx: &Ctx, pos_az: f64, corr: f64, allow_long_way: bool, rep: &mut Report) -> R<f64> {
+/// Short-way target first; the same direction one turn away is offered only
+/// with --allow-long-way, if it stays within the (true) azimuth limits.
+fn az_targets(ctx: &Ctx, pos_az: f64, corr: f64, allow_long_way: bool) -> Vec<f64> {
     let t = pos_az + corr;
-    let l = &ctx.lim;
-    if t >= l.az_min && t <= l.az_max {
-        return Ok(t);
-    }
-    for alt in [t + 360.0, t - 360.0] {
-        if alt >= l.az_min && alt <= l.az_max {
-            if allow_long_way {
-                warn_rep(rep, format!("azimuth {t:.1}° is outside limits; going the long way round to {alt:.1}°"));
-                return Ok(alt);
+    let mut v = vec![t];
+    if allow_long_way {
+        let l = &ctx.lim;
+        for alt in [t + 360.0, t - 360.0] {
+            let ta = alt - ctx.zero_rep.0;
+            if ta >= l.az_min - ctx.th.pos_tol_deg && ta <= l.az_max + ctx.th.pos_tol_deg {
+                v.push(alt);
             }
-            return Err(Fail::Rejected(format!(
-                "azimuth correction needs {t:.1}° which is outside limits [{}, {}]; {alt:.1}° is reachable the long way \
-                 round — re-run with --allow-long-way",
-                l.az_min, l.az_max
-            )));
         }
     }
-    Err(Fail::Rejected(format!("azimuth target {t:.1}° is unreachable within limits")))
+    v
 }
 
 pub fn zero_az(ctx: &mut Ctx, cfg: &Config, model: &Model, mut cur: AzMeas, o: &ZeroOpts, rep: &mut Report) -> R<AzMeas> {
@@ -203,10 +200,27 @@ pub fn zero_az(ctx: &mut Ctx, cfg: &Config, model: &Model, mut cur: AzMeas, o: &
             return Ok(cur);
         }
         let pos = ctx.rot.get_pos()?;
+        ctx.zero_rep.0 = pos.0 - cur.az / gain;
         let corr = -cur.az / gain;
-        let target = (az_target(ctx, pos.0, corr, o.allow_long_way, rep)?, pos.1);
-        let watch = Watch::Follow { axis: Axis::Az, model, imu0: cur.az, gain };
-        let mv = move_to(ctx, target, watch).map_err(with_hint)?;
+        let mut target = (pos.0 + corr, pos.1);
+        let mut res = Err(Fail::Rejected("no azimuth target".into()));
+        for (i, t) in az_targets(ctx, pos.0, corr, o.allow_long_way).into_iter().enumerate() {
+            if i > 0 {
+                warn_rep(rep, format!("azimuth {:.1}° was rejected; going the long way round to {t:.1}°", target.0));
+            }
+            target = (t, pos.1);
+            let watch = Watch::Follow { axis: Axis::Az, model, imu0: cur.az, gain };
+            res = move_to(ctx, target, watch);
+            if !matches!(res, Err(Fail::Rejected(_))) {
+                break;
+            }
+        }
+        let mv = res.map_err(|e| match e {
+            Fail::Rejected(m) if !o.allow_long_way => Fail::Rejected(format!(
+                "{m}. The same direction one turn away may be reachable: re-run with --allow-long-way"
+            )),
+            e => with_hint(e),
+        })?;
         let new = measure_az(ctx, model)?;
         check_off_axis(ctx, new.off_axis, az_tilt)?;
         let after = ctx.rot.get_pos()?;
@@ -268,9 +282,27 @@ pub fn run(ctx: &mut Ctx, cfg: &Config, o: &ZeroOpts, rep: &mut Report) -> R<()>
     temperature_check(cfg, el0.w.temp, rep);
     check_off_axis(ctx, el0.off_axis, cfg.mount.az_axis_tilt_deg)?;
     rep.initial_el_deg = Some(el0.el);
-    let az0 = if do_az { Some(measure_az(ctx, &model)?) } else { None };
+    // Elevation needs only gravity. Azimuth is most trustworthy near el=0,
+    // so when elevation will be zeroed first, a failed magnetic reading here
+    // is only a warning: azimuth is measured again once el≈0.
+    let az0 = if !do_az {
+        None
+    } else {
+        match measure_az(ctx, &model) {
+            Ok(a) => Some(a),
+            Err(Fail::Magnetic(m)) if do_el && el0.el.abs() > ctx.th.el_tol_deg => {
+                warn_rep(rep, format!("azimuth not measured at el {:+.1}° ({m}); will measure it after elevation is zeroed", el0.el));
+                None
+            }
+            Err(e) => return Err(e),
+        }
+    };
     rep.initial_az_deg = az0.as_ref().map(|a| a.az);
     let pos = ctx.rot.get_pos()?;
+    ctx.zero_rep = (
+        pos.0 - az0.as_ref().map_or(0.0, |a| a.az / cfg.azimuth.gain),
+        pos.1 - el0.el / cfg.elevation.gain,
+    );
     info!(
         "preflight: rotator az={:.2} el={:.2}; IMU el={:+.2}°{}",
         pos.0,
@@ -308,7 +340,10 @@ pub fn run(ctx: &mut Ctx, cfg: &Config, o: &ZeroOpts, rep: &mut Report) -> R<()>
         el_m = zero_el(ctx, cfg, &model, el_m, rep)?;
     }
     if do_az {
-        let start = if do_el { measure_az(ctx, &model)? } else { az_m.take().unwrap() };
+        let start = match az_m.take() {
+            Some(a) if !do_el => a,
+            _ => measure_az(ctx, &model)?,
+        };
         az_m = Some(zero_az(ctx, cfg, &model, start, o, rep)?);
         if do_el {
             // Re-verify: azimuth moves on a non-level rotator can disturb elevation.

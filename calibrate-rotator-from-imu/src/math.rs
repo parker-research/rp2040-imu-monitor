@@ -84,6 +84,8 @@ impl Neg for V3 {
 pub struct M3(pub [[f64; 3]; 3]);
 
 impl M3 {
+    pub const I: M3 = M3([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+
     pub fn from_rows(a: V3, b: V3, c: V3) -> M3 {
         M3([a.0, b.0, c.0])
     }
@@ -111,6 +113,24 @@ impl M3 {
             }
         }
         M3(r)
+    }
+    pub fn det(&self) -> f64 {
+        let m = &self.0;
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    }
+    pub fn inv(&self) -> Option<M3> {
+        let d = self.det();
+        if d.abs() < 1e-12 {
+            return None;
+        }
+        let m = &self.0;
+        let c = |r0: usize, r1: usize, c0: usize, c1: usize| m[r0][c0] * m[r1][c1] - m[r0][c1] * m[r1][c0];
+        Some(M3([
+            [c(1, 2, 1, 2) / d, -c(0, 2, 1, 2) / d, c(0, 1, 1, 2) / d],
+            [-c(1, 2, 0, 2) / d, c(0, 2, 0, 2) / d, -c(0, 1, 0, 2) / d],
+            [c(1, 2, 0, 1) / d, -c(0, 2, 0, 1) / d, c(0, 1, 0, 1) / d],
+        ]))
     }
     /// Rotation of `deg` degrees about unit `axis` (right-hand rule).
     pub fn rot(axis: V3, deg: f64) -> M3 {
@@ -285,6 +305,36 @@ pub fn robust_mean_v3(v: &[V3]) -> (V3, f64, usize) {
     (mean, sd, kept.len())
 }
 
+/// Unit normal of the best-fit plane through `pts` (the direction of least
+/// spread), oriented to agree with `hint`. Points on a circle (gravity
+/// rotating about the elevation axis) give that axis.
+pub fn plane_normal(pts: &[V3], hint: V3) -> Option<V3> {
+    if pts.len() < 3 {
+        return None;
+    }
+    let mean = pts.iter().fold(V3::default(), |a, p| a + *p) / pts.len() as f64;
+    let mut c = [[0.0; 3]; 3];
+    for p in pts {
+        let d = *p - mean;
+        for (i, row) in c.iter_mut().enumerate() {
+            for (j, x) in row.iter_mut().enumerate() {
+                *x += d.0[i] * d.0[j];
+            }
+        }
+    }
+    let tr = c[0][0] + c[1][1] + c[2][2];
+    for (i, row) in c.iter_mut().enumerate() {
+        row[i] += 1e-9 * tr.max(1e-300);
+    }
+    // inverse power iteration -> eigenvector of the smallest eigenvalue
+    let inv = M3(c).inv()?;
+    let mut v = hint.unit();
+    for _ in 0..100 {
+        v = inv.mul_v(v).unit();
+    }
+    Some(if v.dot(hint) < 0.0 { -v } else { v })
+}
+
 /// Piecewise-linear correction table keyed by measured azimuth.
 #[derive(Clone, Debug)]
 pub struct DevTable {
@@ -345,6 +395,22 @@ mod tests {
         assert!((e[0] - 30.0).abs() < 1e-9);
         assert!((e[1] + 12.0).abs() < 1e-9);
         assert!((e[2] - 170.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn inverse_and_plane_normal() {
+        let m = M3([[1.1, 0.05, -0.02], [0.05, 0.93, 0.04], [-0.02, 0.04, 1.02]]);
+        let p = m.mul(&m.inv().unwrap());
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((p.0[i][j] - M3::I.0[i][j]).abs() < 1e-12);
+            }
+        }
+        let k = V3::new(0.1, 0.98, -0.05).unit();
+        let u0 = k.cross(V3::new(1.0, 0.0, 0.0)).unit();
+        let pts: Vec<V3> = (0..8).map(|i| M3::rot(k, 10.0 * i as f64).mul_v(u0)).collect();
+        let n = plane_normal(&pts, V3::new(0.0, 1.0, 0.0)).unwrap();
+        assert!((n - k).norm() < 1e-9, "{n:?}");
     }
 
     #[test]

@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+pub const VERSION: u32 = 2;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub version: u32,
@@ -19,6 +21,8 @@ pub struct Config {
     pub elevation: ElCal,
     pub azimuth: AzCal,
     pub signs: Signs,
+    #[serde(default)]
+    pub survey: SurveyStats,
     #[serde(default)]
     pub limits: Limits,
     #[serde(default)]
@@ -111,14 +115,50 @@ pub struct ElCal {
     pub moves: Vec<MoveRecord>,
 }
 
-/// Magnetic model: m_imu = Mᵀ·Rot(el_axis, el)·Rz(sign·az)·earth_rot + hard_iron_imu
+/// Magnetic model:
+///   m_imu = soft_iron_imu · Mᵀ·Rot(el_axis, el)·(Rz(sign·az)·earth_rot + stage_field) + hard_iron_imu
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldModel {
     pub hard_iron_imu_ut: V3,
+    /// Symmetric soft-iron / sensor-gain matrix (IMU frame, trace 3). Identity
+    /// unless the envelope survey ran.
+    #[serde(default = "identity")]
+    pub soft_iron_imu: [[f64; 3]; 3],
     /// Earth field in the rotator frame at true zero (x boresight, y left, z up).
     pub earth_rot_ut: V3,
+    /// Field from iron/motors on the azimuth stage: turns with azimuth but
+    /// not with elevation (rotator frame at el=0). Zero unless surveyed.
+    #[serde(default)]
+    pub stage_field_ut: V3,
     pub fit_rms_ut: f64,
     pub points: usize,
+}
+
+fn identity() -> [[f64; 3]; 3] {
+    crate::math::M3::I.0
+}
+
+/// Summary of the envelope survey done by `calibrate` (see the
+/// `.survey.json` file next to the config for every point).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SurveyStats {
+    pub performed: bool,
+    pub points: usize,
+    pub az_step_deg: f64,
+    pub el_levels_deg: Vec<f64>,
+    /// Worst |IMU elevation − rotator elevation| over the survey.
+    pub el_residual_max_deg: f64,
+    /// Azimuth model error over the points used for the fit.
+    pub az_residual_rms_deg: f64,
+    pub az_residual_max_deg: f64,
+    /// Azimuth model error on the held-out "pass" path, before it was added to the fit.
+    pub validation_points: usize,
+    pub validation_az_rms_deg: f64,
+    pub validation_az_max_deg: f64,
+    /// Range of |horizontal field| / model over all points (ideal 1).
+    pub h_ratio_min: f64,
+    pub h_ratio_max: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -152,6 +192,8 @@ pub struct Signs {
     pub azimuth: BTreeMap<String, f64>,
 }
 
+/// Physical travel limits in TRUE (IMU-referenced) coordinates, not in the
+/// controller's reported frame, which is arbitrary after a power cycle.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Limits {
@@ -159,7 +201,8 @@ pub struct Limits {
     pub az_max: f64,
     pub el_min: f64,
     pub el_max: f64,
-    /// Refuse to correct more than this in one run (likely a broken link).
+    /// Refuse to correct more than this in one run. Off by default: after a
+    /// power cycle the antenna can legitimately be anywhere.
     pub max_correction_el_deg: f64,
     pub max_correction_az_deg: f64,
 }
@@ -171,8 +214,8 @@ impl Default for Limits {
             az_max: 360.0,
             el_min: 0.0,
             el_max: 85.0,
-            max_correction_el_deg: 20.0,
-            max_correction_az_deg: 90.0,
+            max_correction_el_deg: 90.0,
+            max_correction_az_deg: 180.0,
         }
     }
 }
@@ -302,8 +345,12 @@ impl Config {
             Fail::Config(format!("cannot read {}: {e} (run `calibrate-rotator-from-imu calibrate` first)", path.display()))
         })?;
         let c: Config = toml::from_str(&s).map_err(|e| Fail::Config(format!("{}: {e}", path.display())))?;
-        if c.version != 1 {
-            return Err(Fail::Config(format!("unsupported config version {}", c.version)));
+        if c.version != VERSION {
+            return Err(Fail::Config(format!(
+                "{} is config version {}, this build needs version {VERSION}: re-run `calibrate-rotator-from-imu calibrate`",
+                path.display(),
+                c.version
+            )));
         }
         Ok(c)
     }
