@@ -37,7 +37,7 @@ struct Pt {
     w: Window,
 }
 
-/// One measured calibration point, written to `<config>.survey.json`.
+/// One measured calibration point, written by `calibrate --report`.
 #[derive(Serialize)]
 pub struct SurveyRecord {
     pub kind: &'static str,

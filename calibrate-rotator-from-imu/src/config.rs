@@ -194,8 +194,8 @@ fn identity() -> [[f64; 3]; 3] {
     crate::math::M3::I.0
 }
 
-/// Summary of the envelope survey done by `calibrate` (see the
-/// `.survey.json` file next to the config for every point).
+/// Summary of the envelope survey done by `calibrate` (`calibrate --report`
+/// writes every point).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SurveyStats {

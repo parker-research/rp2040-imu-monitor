@@ -45,7 +45,7 @@ The command:
 6. Fits a **magnetometer model** (see below) to all points, and builds a deviation table from the el=0 ring.
 7. Checks closure: the IMU must read the same at zero at the end as at the start.
 
-The summary and the `[survey]` table report how well the model fits: azimuth error over the survey and on the held-out pass, the horizontal-field ratio range (ideal 1.00), and the worst elevation error. Every measured point (rotator position, raw accelerometer and magnetometer, model error) is written to `<config>.survey.json` for inspection.
+The summary and the `[survey]` table report how well the model fits: azimuth error over the survey and on the held-out pass, the horizontal-field ratio range (ideal 1.00), and the worst elevation error. Pass `--report <PATH>` to also write every measured point (rotator position, raw accelerometer and magnetometer, model error) as JSON for inspection.
 
 Configs from before the survey existed (version 1) are rejected; re-run `calibrate`.
 

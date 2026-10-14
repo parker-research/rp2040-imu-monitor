@@ -73,7 +73,7 @@ struct SimArgs {
 #[derive(Subcommand)]
 enum Cmd {
     /// Characterise the IMU mounting with the rotator at TRUE zero, then survey
-    /// the whole operating envelope; writes the config (and <config>.survey.json).
+    /// the whole operating envelope; writes the config.
     Calibrate {
         /// Test move size (deg, 1–15).
         #[arg(long, default_value_t = 10.0)]
@@ -97,6 +97,9 @@ enum Cmd {
         /// Survey: azimuth span of each ring (deg), within [limits].
         #[arg(long, default_value_t = 360.0)]
         az_span: f64,
+        /// Write every survey point (raw IMU vectors, model errors) as JSON here.
+        #[arg(long)]
+        report: Option<PathBuf>,
         #[command(flatten)]
         lim: LimitArgs,
     },
@@ -241,7 +244,7 @@ fn print_cal_summary(cfg: &Config, path: &Path) {
 
 fn real_main(cli: Cli) -> R<i32> {
     match &cli.cmd {
-        Cmd::Calibrate { step, yes, goto_zero, quick, az_step, el_step, az_span, lim } => {
+        Cmd::Calibrate { step, yes, goto_zero, quick, az_step, el_step, az_span, report, lim } => {
             // keep a hand-edited [motion] from an existing config
             let motion = Motion::from_file(&cli.config)?.unwrap_or_default();
             let io = open_io(&cli)?;
@@ -269,7 +272,7 @@ fn real_main(cli: Cli) -> R<i32> {
             };
             let out = calibrate::run(&mut ctx, &o)?;
             out.cfg.save(&cli.config)?;
-            write_json(&Some(cli.config.with_extension("survey.json")), &out.survey);
+            write_json(report, &out.survey);
             print_cal_summary(&out.cfg, &cli.config);
             Ok(0)
         }

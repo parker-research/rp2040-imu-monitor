@@ -36,7 +36,8 @@ fn report(p: &Path) -> serde_json::Value {
 #[test]
 fn calibrate_then_zero_all_modes() {
     let d = tempfile::tempdir().unwrap();
-    let cfg = calibrated(d.path(), &[]);
+    let survey_path = d.path().join("survey.json");
+    let cfg = calibrated(d.path(), &["--report", survey_path.to_str().unwrap()]);
     let toml = std::fs::read_to_string(&cfg).unwrap();
     assert!(toml.contains("[mount]") && toml.contains("[signs]") && toml.contains("elevation_primary_field"));
     // the envelope survey must model the field well everywhere, including
@@ -46,7 +47,7 @@ fn calibrate_then_zero_all_modes() {
     assert_eq!(sv["performed"].as_bool(), Some(true), "{toml}");
     assert!(sv["validation_az_max_deg"].as_float().unwrap() < 2.0, "{sv}");
     assert!(sv["h_ratio_min"].as_float().unwrap() > 0.95 && sv["h_ratio_max"].as_float().unwrap() < 1.05, "{sv}");
-    let survey: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(cfg.with_extension("survey.json")).unwrap()).unwrap();
+    let survey: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&survey_path).unwrap()).unwrap();
     assert!(survey.as_array().unwrap().len() > 60);
 
     let rep = d.path().join("r.json");
