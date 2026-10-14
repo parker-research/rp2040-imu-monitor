@@ -224,18 +224,5 @@ impl Rotctl {
         debug!("rotctld -> {out:?}");
         Ok(out)
     }
-
-    pub fn stop(&mut self) -> R<()> {
-        self.transact("S", 0).map(|_| ())
-    }
 }
 
-/// Best-effort out-of-band stop (used from the Ctrl-C handler).
-pub fn emergency_stop(addr: &str) {
-    if let Some(sa) = addr.to_socket_addrs().ok().and_then(|mut a| a.next()) {
-        if let Ok(mut s) = TcpStream::connect_timeout(&sa, Duration::from_secs(2)) {
-            let _ = s.write_all(b"S\n");
-            let _ = s.flush();
-        }
-    }
-}

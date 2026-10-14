@@ -102,10 +102,10 @@ A live table of the stream, the IMU-derived true az/el, and the rotator position
 
 ## Mechanical-link ("glue") checks
 
-Each check below, if it fails, **stops the rotator** and exits with code 5.
+Each check below, if it fails, aborts the run with exit code 5. The tool never sends a stop (`S`): a move already under way runs on to its commanded target, so keep moves within safe travel via `[limits]`.
 
 - **Static, before anything moves.** Gravity must lie on the cone around the calibrated elevation axis. Pure elevation motion keeps it there. If the IMU has shifted or tilted on its mount, it is off the cone.
-- **During every move.** Once the rotator has travelled 4° in el (or 15° in az), the IMU must show at least 30% of the expected motion in the right direction. This must hold for 3 consecutive polls, otherwise the rotator is stopped immediately. This catches a mast slipping in its clamp, a stripped gear, or a detached IMU before the antenna is driven further.
+- **During every move.** Once the rotator has travelled 4° in el (or 15° in az), the IMU must show at least 30% of the expected motion in the right direction. This must hold for 3 consecutive polls, otherwise the run aborts and no further moves are sent. This catches a mast slipping in its clamp, a stripped gear, or a detached IMU before the antenna is driven further.
 - **After every move.** The IMU change must match the rotator-reported change within `abs + rel·|move|`. For azimuth this tolerance also includes the measurement's standard error.
 - **Cross-axis.** An azimuth-only move must not change elevation, beyond the measured base tilt.
 - **Sanity limits.**
@@ -126,7 +126,7 @@ Other failure classes have their own exit codes:
 | 4 | Rotator / rotctld |
 | 6 | Did not converge |
 | 7 | Magnetic inconsistency |
-| 130 | Ctrl-C. A stop (`S`) is sent to rotctld first |
+| 130 | Ctrl-C. No stop is sent; a move in progress finishes |
 
 ## IMU data handling
 

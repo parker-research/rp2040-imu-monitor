@@ -55,13 +55,6 @@ pub fn check_limits(ctx: &Ctx, target: (f64, f64), from: Option<(f64, f64)>) -> 
     Ok(())
 }
 
-fn stop_and(ctx: &mut Ctx, e: Fail) -> Fail {
-    if let Err(se) = ctx.rot.stop() {
-        warn!("stop command failed: {se}");
-    }
-    e
-}
-
 pub fn move_to(ctx: &mut Ctx, target: (f64, f64), watch: Watch) -> R<MoveOut> {
     let start = ctx.rot.get_pos()?;
     check_limits(ctx, target, Some(start))?;
@@ -79,10 +72,7 @@ pub fn move_to(ctx: &mut Ctx, target: (f64, f64), watch: Watch) -> R<MoveOut> {
     let mut strikes = 0u32;
     loop {
         thread::sleep(ctx.tm.poll());
-        let pos = match ctx.rot.get_pos() {
-            Ok(p) => p,
-            Err(e) => return Err(stop_and(ctx, e)),
-        };
+        let pos = ctx.rot.get_pos()?;
         if (pos.0 - prev.0).abs() > 0.05 || (pos.1 - prev.1).abs() > 0.05 {
             last_change = Instant::now();
         }
@@ -90,9 +80,7 @@ pub fn move_to(ctx: &mut Ctx, target: (f64, f64), watch: Watch) -> R<MoveOut> {
         if (pos.0 - start.0).abs().max((pos.1 - start.1).abs()) > 0.3 {
             any_motion = true;
         }
-        if let Err(e) = follow_check(ctx, &watch, t0, start, pos, &mut strikes) {
-            return Err(stop_and(ctx, e));
-        }
+        follow_check(ctx, &watch, t0, start, pos, &mut strikes)?;
         let err = (pos.0 - target.0).abs().max((pos.1 - target.1).abs());
         let quiet = last_change.elapsed() >= ctx.tm.d(ctx.tm.stop_detect_s);
         if quiet && err <= ctx.th.pos_tol_deg {
@@ -111,11 +99,11 @@ pub fn move_to(ctx: &mut Ctx, target: (f64, f64), watch: Watch) -> R<MoveOut> {
                 "stalled at az={:.2} el={:.2}, target az={:.2} el={:.2} (motor, brake, limit switch, or controller fault)",
                 pos.0, pos.1, target.0, target.1
             ));
-            return Err(stop_and(ctx, e));
+            return Err(e);
         }
         if t0.elapsed() > timeout {
             let e = Fail::Rotator(format!("move timed out after {:.0}s at az={:.2} el={:.2}", timeout.as_secs_f64(), pos.0, pos.1));
-            return Err(stop_and(ctx, e));
+            return Err(e);
         }
     }
 }
@@ -163,8 +151,7 @@ fn follow_check(ctx: &Ctx, watch: &Watch, t_cmd: Instant, start: (f64, f64), pos
     if *strikes >= 3 {
         return Err(Fail::Glue(format!(
             "rotator moved {travel:+.1}° in {name} but the IMU only saw {d:+.1}° (expected ≈{expected:+.1}°). \
-             The antenna/IMU is not following the rotator: slipping mast clamp, broken coupling, or IMU detached. \
-             Rotator stopped."
+             The antenna/IMU is not following the rotator: slipping mast clamp, broken coupling, or IMU detached."
         )));
     }
     Ok(())

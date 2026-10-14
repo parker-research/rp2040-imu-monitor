@@ -379,6 +379,5 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
         let (az, el) = r.get_pos().unwrap();
         assert!((az - 13.0).abs() < 1e-6 && (el - 4.0).abs() < 1e-6, "{az} {el}");
-        r.stop().unwrap();
     }
 }

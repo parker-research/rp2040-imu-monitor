@@ -185,17 +185,7 @@ fn open_io(cli: &Cli) -> R<Io> {
     }
 }
 
-fn install_ctrlc(addr: &str) {
-    let a = addr.to_string();
-    let _ = ctrlc::set_handler(move || {
-        eprintln!("\ninterrupted — sending stop to rotctld");
-        rotctl::emergency_stop(&a);
-        std::process::exit(130);
-    });
-}
-
 fn make_ctx(io: Io, cfg: Option<&Config>, motion: Motion) -> R<Ctx> {
-    install_ctrlc(&io.rotctld);
     let mut rot = Rotctl::connect(&io.rotctld)?;
     rot.motion = motion;
     let (th, mut tm, lim) = match cfg {
@@ -301,7 +291,6 @@ fn real_main(cli: Cli) -> R<i32> {
             if let Err(e) = &res {
                 rep.result = "failed".into();
                 rep.error = Some(e.to_string());
-                let _ = ctx.rot.stop();
             }
             write_json(&o.report, &rep);
             res?;
