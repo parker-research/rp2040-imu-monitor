@@ -808,6 +808,7 @@ pub fn run(ctx: &mut Ctx, o: &CalOpts) -> R<CalOut> {
         thresholds: ctx.th.clone(),
         timing: ctx.tm.clone(),
         sync: Sync::default(),
+        motion: ctx.rot.motion.clone(),
     };
     Ok(CalOut { cfg, survey: survey_out })
 }

@@ -14,7 +14,7 @@ mod sim;
 mod zero;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
-use config::{Config, Limits, Thresholds, Timing};
+use config::{Config, Limits, Motion, Thresholds, Timing};
 use error::{Fail, R};
 use imu::ImuStream;
 use measure::Ctx;
@@ -194,9 +194,10 @@ fn install_ctrlc(addr: &str) {
     });
 }
 
-fn make_ctx(io: Io, cfg: Option<&Config>) -> R<Ctx> {
+fn make_ctx(io: Io, cfg: Option<&Config>, motion: Motion) -> R<Ctx> {
     install_ctrlc(&io.rotctld);
-    let rot = Rotctl::connect(&io.rotctld)?;
+    let mut rot = Rotctl::connect(&io.rotctld)?;
+    rot.motion = motion;
     let (th, mut tm, lim) = match cfg {
         Some(c) => (c.thresholds.clone(), c.timing.clone(), c.limits.clone()),
         None => (Thresholds::default(), Timing::default(), Limits::default()),
@@ -251,8 +252,10 @@ fn print_cal_summary(cfg: &Config, path: &Path) {
 fn real_main(cli: Cli) -> R<i32> {
     match &cli.cmd {
         Cmd::Calibrate { step, yes, goto_zero, quick, az_step, el_step, az_span, lim } => {
+            // keep a hand-edited [motion] from an existing config
+            let motion = Motion::from_file(&cli.config)?.unwrap_or_default();
             let io = open_io(&cli)?;
-            let mut ctx = make_ctx(io, None)?;
+            let mut ctx = make_ctx(io, None, motion)?;
             if let Some(v) = lim.az_min {
                 ctx.lim.az_min = v;
             }
@@ -283,7 +286,7 @@ fn real_main(cli: Cli) -> R<i32> {
         Cmd::Zero { mode, dry_run, allow_long_way, report, on_zero_cmd, no_sync, sync_cmd } => {
             let cfg = Config::load(&cli.config)?;
             let io = open_io(&cli)?;
-            let mut ctx = make_ctx(io, Some(&cfg))?;
+            let mut ctx = make_ctx(io, Some(&cfg), cfg.motion.clone())?;
             let o = zero::ZeroOpts {
                 mode: *mode,
                 dry_run: *dry_run,
@@ -332,7 +335,7 @@ fn real_main(cli: Cli) -> R<i32> {
         Cmd::Check { wiggle, step, no_az, report } => {
             let cfg = Config::load(&cli.config)?;
             let io = open_io(&cli)?;
-            let mut ctx = make_ctx(io, Some(&cfg))?;
+            let mut ctx = make_ctx(io, Some(&cfg), cfg.motion.clone())?;
             let o = check::CheckOpts { wiggle: *wiggle, step: *step, skip_az: *no_az };
             let r = check::run(&mut ctx, &cfg, &o)?;
             write_json(report, &r);

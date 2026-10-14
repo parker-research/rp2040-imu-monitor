@@ -93,6 +93,17 @@ fn calibrate_then_zero_all_modes() {
     assert!((r["offset_before_sync_az"].as_f64().unwrap() + 40.0).abs() < 1.5, "{r}");
     assert!((r["offset_before_sync_el"].as_f64().unwrap() + 40.0).abs() < 0.5, "{r}");
     assert_eq!(r["sync"]["performed"], true, "{r}");
+    // ...which needs the raw G-code moves: through hamlib's `P` the negative
+    // targets are refused by rotctld's limits
+    let toml = std::fs::read_to_string(&cfg).unwrap();
+    assert!(toml.contains("method = \"gcode\""), "{toml}");
+    let hamlib = d.path().join("hamlib.toml");
+    std::fs::write(&hamlib, toml.replace("method = \"gcode\"", "method = \"hamlib\"")).unwrap();
+    let mut a = boot.to_vec();
+    a.push("zero");
+    let (code, out) = run_cli(&hamlib, &a);
+    assert_eq!(code, 4, "{out}");
+    assert!(out.contains("RPRT -1"), "{out}");
 
     // dry run must not move
     let mut a = off.to_vec();

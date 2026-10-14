@@ -81,9 +81,11 @@ pub struct Sim {
     pub lines: Option<Receiver<String>>,
 }
 
-// Wide: after a power cycle the controller's frame is arbitrary.
-const AZ_LIM: (f64, f64) = (-360.0, 720.0);
-const EL_LIM: (f64, f64) = (-90.0, 180.0);
+/// rotctld's min/max for `P`, like a typical hamlib setup. Raw G-code
+/// (`w G0 ...`) bypasses them, as on the real controller.
+const AZ_LIM: (f64, f64) = (0.0, 360.0);
+const EL_LIM: (f64, f64) = (0.0, 90.0);
+const SIM_DEG_PER_GCODE_UNIT: f64 = 9.0;
 
 impl Fixed {
     fn new(seed: u64) -> Fixed {
@@ -238,6 +240,30 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
             let (w, fx) = (w.clone(), fx.clone());
             thread::spawn(move || {
                 let mut out = conn.try_clone().unwrap();
+                // New target in the reported frame (deg); None keeps that axis.
+                let set_target = |a: Option<f64>, e: Option<f64>| -> String {
+                    let mut s = w.lock().unwrap();
+                    let (ta, te) = (a.map_or(s.taz, |a| a - s.off_az), e.map_or(s.tel, |e| e - s.off_el));
+                    if (ta - s.az).abs() >= fx.deadband {
+                        s.taz = ta;
+                    }
+                    if (te - s.el).abs() >= fx.deadband {
+                        s.tel = te;
+                    }
+                    s.sets += 1;
+                    if s.sets > after {
+                        match fault {
+                            Fault::ImuDetached if s.imu_frozen.is_none() => {
+                                let m = (fx.world_to_imu(s.az, s.el), fx.stage_in_imu(s.el));
+                                s.imu_frozen = Some(m);
+                            }
+                            Fault::MastSlip if s.ant_az_frozen.is_none() => s.ant_az_frozen = Some(s.az),
+                            Fault::ElStuck if s.ant_el_frozen.is_none() => s.ant_el_frozen = Some(s.el),
+                            _ => {}
+                        }
+                    }
+                    "RPRT 0\n".to_string()
+                };
                 for line in BufReader::new(conn).lines().map_while(Result::ok) {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     let booting = {
@@ -271,6 +297,19 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
                             // no reply from a rebooting controller -> rotctld times out
                             "RPRT -5\n".to_string()
                         }
+                        // Raw G-code straight to the controller: no rotctld limits.
+                        Some("w") | Some("\\send_cmd") if parts.get(1) == Some(&"G0") => {
+                            let axis = |c: char| -> Result<Option<f64>, ()> {
+                                match parts[2..].iter().find(|t| t.starts_with(c)) {
+                                    Some(t) => t[1..].parse::<f64>().map(|u| Some(u * SIM_DEG_PER_GCODE_UNIT)).map_err(|_| ()),
+                                    None => Ok(None),
+                                }
+                            };
+                            match (axis('X'), axis('Y')) {
+                                (Ok(a), Ok(e)) => set_target(a, e),
+                                _ => "RPRT -1\n".to_string(),
+                            }
+                        }
                         Some("w") | Some("\\send_cmd") => "RPRT -11\n".to_string(),
                         Some("p") | Some("\\get_pos") => {
                             let s = w.lock().unwrap();
@@ -281,27 +320,7 @@ pub fn start(o: &SimOpts) -> std::io::Result<Sim> {
                                 (Ok(a), Ok(e))
                                     if (AZ_LIM.0..=AZ_LIM.1).contains(&a) && (EL_LIM.0..=EL_LIM.1).contains(&e) =>
                                 {
-                                    let mut s = w.lock().unwrap();
-                                    let (ta, te) = (a - s.off_az, e - s.off_el);
-                                    if (ta - s.az).abs() >= fx.deadband {
-                                        s.taz = ta;
-                                    }
-                                    if (te - s.el).abs() >= fx.deadband {
-                                        s.tel = te;
-                                    }
-                                    s.sets += 1;
-                                    if s.sets > after {
-                                        match fault {
-                                            Fault::ImuDetached if s.imu_frozen.is_none() => {
-                                                let m = (fx.world_to_imu(s.az, s.el), fx.stage_in_imu(s.el));
-                                                s.imu_frozen = Some(m);
-                                            }
-                                            Fault::MastSlip if s.ant_az_frozen.is_none() => s.ant_az_frozen = Some(s.az),
-                                            Fault::ElStuck if s.ant_el_frozen.is_none() => s.ant_el_frozen = Some(s.el),
-                                            _ => {}
-                                        }
-                                    }
-                                    "RPRT 0\n".to_string()
+                                    set_target(Some(a), Some(e))
                                 }
                                 _ => "RPRT -1\n".to_string(),
                             }
@@ -347,11 +366,19 @@ mod tests {
         let mut r = Rotctl::connect(&sim.rotctld_addr).unwrap();
         let (az, el) = r.get_pos().unwrap();
         assert!((az - 3.0).abs() < 1e-6 && (el + 1.0).abs() < 1e-6);
+        // default: raw G-code, 9°/unit, negative targets allowed
+        assert_eq!(r.gcode_for(-13.5, 4.5), "G0 X-1.5000 Y0.5000");
+        r.set_pos(-13.5, -4.5).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        let (az, el) = r.get_pos().unwrap();
+        assert!((az + 13.5).abs() < 1e-6 && (el + 4.5).abs() < 1e-6, "{az} {el}");
+        // hamlib `P` is subject to rotctld's limits
+        r.motion.method = crate::config::MoveMethod::Hamlib;
+        assert!(matches!(r.set_pos(-13.5, 0.0), Err(crate::error::Fail::Rejected(_))));
         r.set_pos(13.0, 4.0).unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(500));
         let (az, el) = r.get_pos().unwrap();
         assert!((az - 13.0).abs() < 1e-6 && (el - 4.0).abs() < 1e-6, "{az} {el}");
-        assert!(matches!(r.set_pos(1000.0, 0.0), Err(crate::error::Fail::Rejected(_))));
         r.stop().unwrap();
     }
 }

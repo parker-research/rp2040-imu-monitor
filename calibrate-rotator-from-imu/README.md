@@ -64,7 +64,7 @@ calibrate-rotator-from-imu zero --report out.json --on-zero-cmd 'echo $ROTCAL_ZE
 
 This is a closed loop: measure the true angle from the IMU, command a relative correction, wait to settle, re-measure, and repeat. It stops when the angle is within `el_tol_deg` / `az_tol_deg`, or when the residual is below the rotator's resolution.
 
-**Starting from anywhere.** `zero` works from any pose, including straight after a power cycle. The controller then reports 0/0 wherever the antenna actually is. Elevation is zeroed first, using gravity alone. Azimuth is measured once el≈0, which is where the magnetometer is most trustworthy. If the field can't be read at the starting elevation, that is only a warning. Because the controller's frame can be far from true, it may need targets outside its usual range, for example reported el −40° to bring a boom at true 40° down. rotctld must accept them (`--set-conf=min_az=-360,min_el=-90`). If rotctld refuses the short way round in azimuth, `--allow-long-way` takes the same direction one turn away, provided it is within `[limits]`.
+**Starting from anywhere.** `zero` works from any pose, including straight after a power cycle. The controller then reports 0/0 wherever the antenna actually is. Elevation is zeroed first, using gravity alone. Azimuth is measured once el≈0, which is where the magnetometer is most trustworthy. If the field can't be read at the starting elevation, that is only a warning. Because the controller's frame can be far from true, it may need targets outside its usual range, for example reported el −40° to bring a boom at true 40° down. hamlib's `P` would refuse those, so moves are sent as raw G-code instead (see [Moves](#moves-raw-g-code)). If a target is refused anyway, `--allow-long-way` takes the same direction one turn away, provided it is within `[limits]`.
 
 **Re-zeroing the controller.** hamlib has no generic "set current position" command. Once the antenna is at IMU-true zero, calibrate-rotator-from-imu sends `w [ESP444]RESTART` through rotctld. The ESP32 controller reboots and takes its current position as az=el=0. calibrate-rotator-from-imu then:
 
@@ -162,14 +162,33 @@ A field that changes after calibration (new metalwork, a car parked nearby) brea
 `[limits]`, `[thresholds]` and `[timing]` in `calibrate-rotator-from-imu.toml` are hand-editable.
 
 - **`[limits]` are physical travel limits in true coordinates** (default az 0–360°, el 0–85°), not in the controller's reported frame. Targets are converted using the IMU's measurement of where true zero is, with `pos_tol_deg` of slack. They also bound the calibration survey. Calibration's `--az-min/--az-max/--el-min/--el-max` override them.
-- **Rotator rejects a target** (`RPRT -1`): rotctld's own limits apply in the controller's frame, which can be offset from true. Widen them (for example `--set-conf=min_az=-360,min_el=-90`). Azimuth corrections across a hard stop require `--allow-long-way`.
+- **Rotator rejects a target** (`RPRT -1`): with `method = "hamlib"`, rotctld's own limits apply in the controller's frame, which can be offset from true. Switch to `gcode` or widen them (for example `--set-conf=min_az=-360,min_el=-90`). Azimuth corrections across a hard stop require `--allow-long-way`.
 - **Deadband.** Rotators with a 1–2° deadband will stop with "residual below the rotator's resolution". Raise `min_step_deg` / `pos_tol_deg` to match.
+
+### Moves (raw G-code)
+
+Position commands go to the controller as raw G-code through rotctld, bypassing hamlib's min/max:
+
+```
+w G0 X<az / deg_per_gcode_unit> Y<el / deg_per_gcode_unit>
+```
+
+The values are absolute targets in the controller's reported frame. With the default 9° per unit, reported az −40° / el 22.5° is sent as `w G0 X-4.4444 Y2.5000`. Positions are still read with hamlib's `p`. The settings live in `[motion]`:
+
+```toml
+[motion]
+method = "gcode"                  # or "hamlib" to use rotctld's `P az el`
+gcode_template = "G0 X{az} Y{el}" # {az}/{el} in G-code units
+deg_per_gcode_unit = 9.0
+```
+
+`calibrate` keeps an existing `[motion]` from the config file, so set it before calibrating if your controller differs. Because hamlib no longer checks targets, `[limits]` are the only software guard on travel.
 
 ## Simulator
 
 Every command runs against a built-in simulator. It provides:
 
-- a fake rotctld,
+- a fake rotctld (`P` limited to 0–360° / 0–90° like a typical hamlib setup; `w G0 …` at 9°/unit with no limits),
 - an IMU emitting the same JSONL,
 - a random upside-down mount,
 - 35 µT of hard iron,

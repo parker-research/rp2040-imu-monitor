@@ -31,6 +31,62 @@ pub struct Config {
     pub timing: Timing,
     #[serde(default)]
     pub sync: Sync,
+    #[serde(default)]
+    pub motion: Motion,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MoveMethod {
+    /// Raw G-code through rotctld (`w <gcode_template>`). Bypasses hamlib's
+    /// min/max, so targets outside the controller's frame (e.g. negative
+    /// after a power cycle) are reachable. [limits] still apply.
+    #[default]
+    Gcode,
+    /// rotctld `P az el`, subject to rotctld's own min/max.
+    Hamlib,
+}
+
+/// How position commands reach the controller.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Motion {
+    pub method: MoveMethod,
+    /// `{az}` / `{el}` are replaced by the target in G-code units.
+    pub gcode_template: String,
+    /// Degrees of rotator motion per G-code unit (both axes).
+    pub deg_per_gcode_unit: f64,
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        Motion { method: MoveMethod::Gcode, gcode_template: "G0 X{az} Y{el}".into(), deg_per_gcode_unit: 9.0 }
+    }
+}
+
+impl Motion {
+    /// `[motion]` from an existing config file, even one too old to load
+    /// fully, so hand edits survive re-running `calibrate`.
+    pub fn from_file(path: &Path) -> R<Option<Motion>> {
+        let Ok(s) = std::fs::read_to_string(path) else { return Ok(None) };
+        let v: toml::Value = toml::from_str(&s).map_err(|e| Fail::Config(format!("{}: {e}", path.display())))?;
+        let Some(m) = v.get("motion") else { return Ok(None) };
+        let m: Motion = m.clone().try_into().map_err(|e| Fail::Config(format!("{} [motion]: {e}", path.display())))?;
+        m.validate()?;
+        Ok(Some(m))
+    }
+
+    pub fn validate(&self) -> R<()> {
+        if !(self.deg_per_gcode_unit.is_finite() && self.deg_per_gcode_unit > 0.0) {
+            return Err(Fail::Config("[motion] deg_per_gcode_unit must be > 0".into()));
+        }
+        if self.method == MoveMethod::Gcode
+            && !(self.gcode_template.contains("{az}") && self.gcode_template.contains("{el}"))
+        {
+            return Err(Fail::Config("[motion] gcode_template must contain {az} and {el}".into()));
+        }
+        Ok(())
+    }
 }
 
 /// How to make the controller adopt the current position as az=el=0.
@@ -345,6 +401,7 @@ impl Config {
             Fail::Config(format!("cannot read {}: {e} (run `calibrate-rotator-from-imu calibrate` first)", path.display()))
         })?;
         let c: Config = toml::from_str(&s).map_err(|e| Fail::Config(format!("{}: {e}", path.display())))?;
+        c.motion.validate()?;
         if c.version != VERSION {
             return Err(Fail::Config(format!(
                 "{} is config version {}, this build needs version {VERSION}: re-run `calibrate-rotator-from-imu calibrate`",

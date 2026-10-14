@@ -108,8 +108,8 @@ fn with_hint(e: Fail) -> Fail {
     match e {
         Fail::Rejected(m) => Fail::Rejected(format!(
             "{m}. Reaching true zero needs this reported position (the controller's frame is offset from true, \
-             e.g. it boots reporting 0/0 wherever the antenna is). Let rotctld accept it \
-             (e.g. --set-conf=min_az=-360,min_el=-90), or widen [limits] in the config if those are the ones refusing"
+             e.g. it boots reporting 0/0 wherever the antenna is). Widen [limits] in the config if those are refusing; \
+             with [motion] method = \"hamlib\", rotctld's own min/max apply too (method = \"gcode\" bypasses them)"
         )),
         e => e,
     }
